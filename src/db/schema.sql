@@ -31,9 +31,21 @@ CREATE TABLE IF NOT EXISTS completed_sets (
   exercise_name TEXT NOT NULL,
   set_number INTEGER NOT NULL,
   reps INTEGER NOT NULL,
+  weight_lbs NUMERIC,
   completed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Additive migration for databases created before weight tracking existed.
+ALTER TABLE completed_sets ADD COLUMN IF NOT EXISTS weight_lbs NUMERIC;
+
+CREATE TABLE IF NOT EXISTS body_weight_logs (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  weight_lbs NUMERIC NOT NULL,
+  logged_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_workouts_user ON workouts(user_id);
 CREATE INDEX IF NOT EXISTS idx_water_logs_user_date ON water_logs(user_id, log_date);
 CREATE INDEX IF NOT EXISTS idx_completed_sets_user ON completed_sets(user_id);
+CREATE INDEX IF NOT EXISTS idx_body_weight_logs_user ON body_weight_logs(user_id, logged_at);

@@ -7,6 +7,8 @@ const rateLimit = require('express-rate-limit');
 const authRoutes = require('./routes/auth');
 const workoutsRoutes = require('./routes/workouts');
 const waterRoutes = require('./routes/water');
+const setsRoutes = require('./routes/sets');
+const bodyWeightRoutes = require('./routes/bodyWeight');
 
 const app = express();
 
@@ -40,6 +42,8 @@ app.get('/health', (req, res) => res.json({ status: 'ok' }));
 app.use('/', authRoutes); // exposes /register, /login, /me
 app.use('/workouts', workoutsRoutes);
 app.use('/water', waterRoutes);
+app.use('/sets', setsRoutes);
+app.use('/body-weight', bodyWeightRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ message: 'Not found.' });
