@@ -14,6 +14,8 @@ services:
         fromDatabase:
           name: fitness-tracker-db
           property: connectionString
+      - key: IOS_BUNDLE_ID
+        value: com.ematobi.fitnesstracker
 
 databases:
   - name: fitness-tracker-db

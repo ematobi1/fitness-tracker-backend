@@ -1,6 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const appleSignin = require('apple-signin-auth');
 const pool = require('../db/pool');
 const { requireAuth } = require('../middleware/auth');
 
@@ -59,7 +60,7 @@ router.post('/login', async (req, res) => {
     const user = result.rows[0];
 
     // Same error for "no user" and "wrong password" — avoids leaking which emails are registered.
-    if (!user) {
+    if (!user || !user.password_hash) {
       return res.status(401).json({ message: 'Invalid email or password.' });
     }
 
@@ -86,6 +87,64 @@ router.get('/me', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('Me error:', err.message);
     res.status(500).json({ message: 'Internal server error.' });
+  }
+});
+
+router.post('/login/apple', async (req, res) => {
+  try {
+    const { identityToken, fullName } = req.body || {};
+    if (!identityToken) {
+      return res.status(400).json({ message: 'identityToken is required.' });
+    }
+    if (!process.env.IOS_BUNDLE_ID) {
+      console.error('IOS_BUNDLE_ID environment variable is not set.');
+      return res.status(500).json({ message: 'Apple Sign In is not configured on the server.' });
+    }
+
+    // Verifies the token's signature against Apple's public keys, checks
+    // issuer/audience/expiry. Throws if any of that fails.
+    const applePayload = await appleSignin.verifyIdToken(identityToken, {
+      audience: process.env.IOS_BUNDLE_ID,
+      ignoreExpiration: false,
+    });
+
+    const appleSub = applePayload.sub;
+    const appleEmail = applePayload.email || null;
+
+    // Apple accounts can be found either by their stable "sub" id, or —
+    // for a first-time Apple sign-in on an account that already exists
+    // via email/password — by matching email, then linking the sub.
+    let result = await pool.query('SELECT id, name, email FROM users WHERE apple_sub = $1', [appleSub]);
+    let user = result.rows[0];
+
+    if (!user && appleEmail) {
+      result = await pool.query('SELECT id, name, email FROM users WHERE email = $1', [appleEmail]);
+      user = result.rows[0];
+      if (user) {
+        await pool.query('UPDATE users SET apple_sub = $1 WHERE id = $2', [appleSub, user.id]);
+      }
+    }
+
+    if (!user) {
+      // First-time sign-in: Apple only gives us a name on the very first
+      // authorization, and only if the app requested it — fall back gracefully.
+      const name = fullName?.givenName
+        ? `${fullName.givenName} ${fullName.familyName || ''}`.trim()
+        : (appleEmail ? appleEmail.split('@')[0] : 'Apple User');
+      const email = appleEmail || `${appleSub}@privaterelay.appleid.local`;
+
+      const insertResult = await pool.query(
+        'INSERT INTO users (name, email, apple_sub) VALUES ($1, $2, $3) RETURNING id, name, email',
+        [name, email, appleSub]
+      );
+      user = insertResult.rows[0];
+    }
+
+    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: TOKEN_EXPIRY });
+    res.json({ token, user: { id: user.id, name: user.name, email: user.email } });
+  } catch (err) {
+    console.error('Apple login error:', err.message);
+    res.status(401).json({ message: 'Apple Sign In verification failed.' });
   }
 });
 
